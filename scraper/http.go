@@ -63,7 +63,7 @@ func calendarEntryFrom(row *colly.HTMLElement) (CalendarEntry, error) {
 	// https://stackoverflow.com/questions/14106541/parsing-date-time-strings-which-are-not-standard-formats/14106561
 	const form = "1/2/2006"
 	loc, _ := time.LoadLocation("America/Denver")
-	date, err := time.ParseInLocation(form, "3/3/2020", loc)
+	date, err := time.ParseInLocation(form, rawDate, loc)
 	if err != nil {
 		return CalendarEntry{}, err
 	}
@@ -77,7 +77,7 @@ func calendarEntryFrom(row *colly.HTMLElement) (CalendarEntry, error) {
 }
 
 // Retreives calendar metadata from Colorado Mountain Club website.
-func ScrapeCalanderEntries() (CalendarEntries, error) {
+func ScrapeCalendarEntries() (CalendarEntries, error) {
 	var entries CalendarEntries
 	idToTripType := make(map[string]string)
 	
@@ -93,10 +93,15 @@ func ScrapeCalanderEntries() (CalendarEntries, error) {
 		generator = e.ChildAttr("#__VIEWSTATEGENERATOR", want)
 		eventValidation = e.ChildAttr("#__EVENTVALIDATION", want)
 	})
+
+	var failed error
 	firstVisit.OnError(func(r *colly.Response, err error) {
-		return entries, fmt.Errorf("First visit request:", r.Request.URL, "failed with response:", r, "\nError:", err)
+		failed = fmt.Errorf("First visit request:", r.Request.URL, "failed with response:", r, "\nError:", err)
 	})
 	firstVisit.Visit(calendarURL)
+	if failed != nil {
+		return entries, failed
+	}
 
 	
 	secondVisit := colly.NewCollector(
@@ -127,15 +132,15 @@ func ScrapeCalanderEntries() (CalendarEntries, error) {
 	})
 
 	secondVisit.OnError(func(r *colly.Response, err error) {
-		return entries, fmt.Errorf("Second visit request:", r.Request.URL, "failed with response:", r, "\nError:", err)
+		failed = fmt.Errorf("Second visit request:", r.Request.URL, "failed with response:", r, "\nError:", err)
 	})
 	secondVisit.PostMultipart(calendarURL, buildMultipartFormWithViewState(viewState, generator, eventValidation))
 
-	for _, entry := range entries {
-		if tripType, ok := idToTripType[entry.EventID]; ok {
-			entry.TripType = tripType
+	for i := range entries {
+		if tripType, ok := idToTripType[entries[i].EventID]; ok {
+			entries[i].TripType = tripType
 		}
 	}
 
-	return entries, nil
+	return entries, failed
 }
